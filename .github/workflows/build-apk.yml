@@ -16,12 +16,37 @@ jobs:
       - name: Find STAG Camera ZIP
         run: |
           ZIP=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
           if [ -z "$ZIP" ]; then
             echo "ERROR: STAG Camera ZIP not found"
             exit 1
           fi
+
           echo "ZIP found: $ZIP"
+          rm -rf project
+          mkdir -p project
           unzip -q "$ZIP" -d project
+
+          echo "=== Project contents ==="
+          find project -maxdepth 2 -type f | head -100
+
+      - name: Detect project root
+        run: |
+          if [ -f "project/settings.gradle" ] || [ -f "project/settings.gradle.kts" ]; then
+            echo "PROJECT_ROOT=project" >> "$GITHUB_ENV"
+          else
+            ROOT=$(find project -maxdepth 2 -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit | xargs -r dirname)
+
+            if [ -z "$ROOT" ]; then
+              echo "ERROR: settings.gradle or settings.gradle.kts not found"
+              find project -maxdepth 3 -type f | head -200
+              exit 1
+            fi
+
+            echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
+          fi
+
+          echo "Project root will be: $PROJECT_ROOT"
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -30,7 +55,10 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: '15859902'
+          packages: 'platform-tools'
 
       - name: Install Android SDK
         run: |
@@ -42,17 +70,17 @@ jobs:
           gradle-version: '8.9'
 
       - name: Check project
-        working-directory: project
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           gradle :app:tasks --stacktrace
 
       - name: Run Lint
-        working-directory: project
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           gradle :app:lintDebug --stacktrace
 
       - name: Build APK
-        working-directory: project
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           gradle :app:assembleDebug --stacktrace
 
@@ -62,5 +90,6 @@ jobs:
         with:
           name: STAG-Camera-APK
           path: |
-            project/app/build/outputs/apk/debug/app-debug.apk
-            project/app/build/reports/
+            ${{ env.PROJECT_ROOT }}/app/build/outputs/apk/debug/app-debug.apk
+            ${{ env.PROJECT_ROOT }}/app/build/reports/
+          if-no-files-found: warn
